@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DC Metro Coverage Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  #map {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0; left: 0;
+    z-index: 1;
+  }
+
+  .leaflet-tile-pane { filter: saturate(0.25) brightness(0.75) contrast(1.05); }
+
+  #legend {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    z-index: 1000;
+    background: rgba(10, 10, 18, 0.88);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 18px 22px;
+    font-size: 13px;
+    min-width: 170px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+
+  #legend h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: rgba(255,255,255,0.45);
+    margin-bottom: 14px;
+  }
+
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    padding: 3px 4px;
+    border-radius: 6px;
+    transition: background 0.2s;
+  }
+
+  .legend-row:hover { background: rgba(255,255,255,0.06); }
+  .legend-row.disabled { opacity: 0.25; }
+
+  .legend-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,0.15);
+  }
+
+  .legend-label { font-weight: 500; font-size: 13px; }
+
+  #info {
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    z-index: 1000;
+    background: rgba(10, 10, 18, 0.88);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 18px 22px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+
+  #info h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  #info p {
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  #tooltip {
+    position: fixed;
+    z-index: 2000;
+    background: rgba(10, 10, 18, 0.92);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 10px 14px;
+    pointer-events: none;
+    display: none;
+    font-size: 13px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    max-width: 220px;
+  }
+
+  #tooltip .station-name { font-weight: 700; margin-bottom: 2px; }
+  #tooltip .station-line {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .leaflet-control-attribution { display: none !important; }
+  .leaflet-control-zoom { display: none !important; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="info">
+  <h1>WMATA Coverage</h1>
+  <p>Voronoi regions by nearest station</p>
+</div>
+<div id="legend"><h3>Metro Lines</h3></div>
+<div id="tooltip">
+  <div class="station-name"></div>
+  <div class="station-line"></div>
+</div>
+
+<script>
+const LINE_COLORS = {
+  'Red':    { hex: '#E51937', rgb: [229, 25, 55] },
+  'Orange': { hex: '#F7941D', rgb: [247,148, 29] },
+  'Blue':   { hex: '#0795D3', rgb: [  7,149,211] },
+  'Yellow': { hex: '#FFD204', rgb: [255,210,  4] },
+  'Green':  { hex: '#00A65C', rgb: [  0,166, 92] },
+  'Silver': { hex: '#A2A4A1', rgb: [162,164,161] },
+};
+
+const STATIONS = [
+  ["Shady Grove",39.1201,-77.1648,"Red",["Red"]],
+  ["Rockville",39.0843,-77.1465,"Red",["Red"]],
+  ["Twinbrook",39.0625,-77.1217,"Red",["Red"]],
+  ["North Bethesda",39.0480,-77.1130,"Red",["Red"]],
+  ["Grosvenor–Strathmore",39.0293,-77.1041,"Red",["Red"]],
+  ["Medical Center",38.9995,-77.0970,"Red",["Red"]],
+  ["Bethesda",38.9845,-77.0940,"Red",["Red"]],
+  ["Friendship Heights",38.9601,-77.0854,"Red",["Red"]],
+  ["Tenleytown–AU",38.9488,-77.0795,"Red",["Red"]],
+  ["Van Ness–UDC",38.9434,-77.0631,"Red",["Red"]],
+  ["Cleveland Park",38.9355,-77.0584,"Red",["Red"]],
+  ["Woodley Park",38.9250,-77.0527,"Red",["Red"]],
+  ["Dupont Circle",38.9096,-77.0434,"Red",["Red"]],
+  ["Farragut North",38.9032,-77.0397,"Red",["Red"]],
+  ["Metro Center",38.8983,-77.0280,"Red",["Red","Orange","Blue","Silver"]],
+  ["Gallery Place",38.8983,-77.0219,"Red",["Red","Yellow","Green"]],
+  ["Judiciary Square",38.8961,-77.0165,"Red",["Red"]],
+  ["Union Station",38.8977,-77.0074,"Red",["Red"]],
+  ["NoMa–Gallaudet U",38.9070,-77.0030,"Red",["Red"]],
+  ["Rhode Island Ave",38.9210,-76.9960,"Red",["Red"]],
+  ["Brookland–CUA",38.9335,-76.9945,"Red",["Red"]],
+  ["Fort Totten",38.9520,-77.0022,"Red",["Red","Yellow","Green"]],
+  ["Takoma",38.9760,-77.0179,"Red",["Red"]],
+  ["Silver Spring",38.9940,-77.0310,"Red",["Red"]],
+  ["Forest Glen",39.0152,-77.0430,"Red",["Red"]],
+  ["Wheaton",39.0386,-77.0513,"Red",["Red"]],
+  ["Glenmont",39.0618,-77.0535,"Red",["Red"]],
+  ["Vienna",38.8776,-77.2713,"Orange",["Orange"]],
+  ["Dunn Loring",38.8833,-77.2289,"Orange",["Orange"]],
+  ["West Falls Church",38.9008,-77.1891,"Orange",["Orange"]],
+  ["East Falls Church",38.8860,-77.1571,"Orange",["Orange","Silver"]],
+  ["Ballston–MU",38.8822,-77.1118,"Orange",["Orange","Silver"]],
+  ["Virginia Square–GMU",38.8831,-77.1021,"Orange",["Orange","Silver"]],
+  ["Clarendon",38.8867,-77.0957,"Orange",["Orange","Silver"]],
+  ["Court House",38.8910,-77.0841,"Orange",["Orange","Silver"]],
+  ["Rosslyn",38.8960,-77.0709,"Orange",["Orange","Blue","Silver"]],
+  ["Foggy Bottom–GWU",38.9005,-77.0502,"Orange",["Orange","Blue","Silver"]],
+  ["Farragut West",38.9013,-77.0407,"Orange",["Orange","Blue","Silver"]],
+  ["McPherson Square",38.9014,-77.0337,"Orange",["Orange","Blue","Silver"]],
+  ["Federal Triangle",38.8932,-77.0284,"Orange",["Orange","Blue","Silver"]],
+  ["Smithsonian",38.8880,-77.0280,"Orange",["Orange","Blue","Silver"]],
+  ["L'Enfant Plaza",38.8849,-77.0219,"Orange",["Orange","Blue","Silver","Yellow","Green"]],
+  ["Federal Center SW",38.8849,-77.0157,"Orange",["Orange","Blue","Silver"]],
+  ["Capitol South",38.8849,-77.0074,"Orange",["Orange","Blue","Silver"]],
+  ["Eastern Market",38.8846,-76.9960,"Orange",["Orange","Blue","Silver"]],
+  ["Potomac Ave",38.8809,-76.9856,"Orange",["Orange","Blue","Silver"]],
+  ["Stadium–Armory",38.8867,-76.9771,"Orange",["Orange","Blue","Silver"]],
+  ["Minnesota Ave",38.8984,-76.9480,"Orange",["Orange"]],
+  ["Deanwood",38.9081,-76.9350,"Orange",["Orange"]],
+  ["Cheverly",38.9165,-76.9161,"Orange",["Orange"]],
+  ["Landover",38.9340,-76.8908,"Orange",["Orange"]],
+  ["New Carrollton",38.9480,-76.8718,"Orange",["Orange"]],
+  ["Franconia–Springfield",38.7660,-77.1680,"Blue",["Blue"]],
+  ["Van Dorn Street",38.7993,-77.1293,"Blue",["Blue"]],
+  ["King St–Old Town",38.8064,-77.0610,"Blue",["Blue","Yellow"]],
+  ["Braddock Road",38.8140,-77.0536,"Blue",["Blue","Yellow"]],
+  ["Ronald Reagan Airport",38.8527,-77.0437,"Blue",["Blue","Yellow"]],
+  ["Crystal City",38.8579,-77.0502,"Blue",["Blue","Yellow"]],
+  ["Pentagon City",38.8629,-77.0592,"Blue",["Blue","Yellow"]],
+  ["Pentagon",38.8696,-77.0538,"Blue",["Blue","Yellow"]],
+  ["Arlington Cemetery",38.8845,-77.0635,"Blue",["Blue"]],
+  ["Benning Road",38.8900,-76.9385,"Blue",["Blue"]],
+  ["Capitol Heights",38.8893,-76.9130,"Blue",["Blue"]],
+  ["Addison Road",38.8865,-76.8938,"Blue",["Blue"]],
+  ["Morgan Boulevard",38.8934,-76.8681,"Blue",["Blue"]],
+  ["Largo Town Center",38.9005,-76.8443,"Blue",["Blue"]],
+  ["Ashburn",39.0065,-77.4633,"Silver",["Silver"]],
+  ["Loudoun Gateway",38.9950,-77.4425,"Silver",["Silver"]],
+  ["Dulles Airport",38.9568,-77.4480,"Silver",["Silver"]],
+  ["Innovation Center",38.9598,-77.4206,"Silver",["Silver"]],
+  ["Herndon",38.9535,-77.3855,"Silver",["Silver"]],
+  ["Reston Town Center",38.9537,-77.3591,"Silver",["Silver"]],
+  ["Wiehle–Reston East",38.9479,-77.3395,"Silver",["Silver"]],
+  ["Spring Hill",38.9289,-77.2413,"Silver",["Silver"]],
+  ["Greensboro",38.9215,-77.2345,"Silver",["Silver"]],
+  ["Tysons",38.9208,-77.2233,"Silver",["Silver"]],
+  ["McLean",38.9244,-77.2099,"Silver",["Silver"]],
+  ["Huntington",38.7938,-77.0753,"Yellow",["Yellow"]],
+  ["Eisenhower Ave",38.8006,-77.0711,"Yellow",["Yellow"]],
+  ["Archives",38.8937,-77.0220,"Yellow",["Yellow","Green"]],
+  ["Branch Ave",38.8269,-76.9124,"Green",["Green"]],
+  ["Suitland",38.8440,-76.9319,"Green",["Green"]],
+  ["Naylor Road",38.8512,-76.9505,"Green",["Green"]],
+  ["Southern Ave",38.8408,-76.9750,"Green",["Green"]],
+  ["Congress Heights",38.8450,-76.9878,"Green",["Green"]],
+  ["Anacostia",38.8627,-76.9952,"Green",["Green"]],
+  ["Navy Yard–Ballpark",38.8764,-77.0050,"Green",["Green"]],
+  ["Waterfront",38.8764,-77.0175,"Green",["Green"]],
+  ["Mt Vernon Sq",38.9050,-77.0219,"Green",["Green","Yellow"]],
+  ["Shaw–Howard U",38.9129,-77.0220,"Green",["Green","Yellow"]],
+  ["U Street",38.9170,-77.0289,"Green",["Green","Yellow"]],
+  ["Columbia Heights",38.9280,-77.0327,"Green",["Green","Yellow"]],
+  ["Georgia Ave–Petworth",38.9368,-77.0243,"Green",["Green","Yellow"]],
+  ["West Hyattsville",38.9545,-76.9695,"Green",["Green"]],
+  ["Hyattsville Crossing",38.9653,-76.9561,"Green",["Green"]],
+  ["College Park–U of Md",38.9785,-76.9285,"Green",["Green"]],
+  ["Greenbelt",39.0111,-76.9112,"Green",["Green"]],
+];
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+const disabledLines = new Set();
+
+// ── Map ──
+const map = L.map('map', {
+  center: [38.9072, -77.0369],
+  zoom: 11,
+  zoomControl: false,
+  attributionControl: false
+});
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 18
+}).addTo(map);
+
+// ── Voronoi GridLayer — renders as tiles, moves natively with the map ──
+const CELL = 4;
+const FADE_START = 800;
+const FADE_END = 2400;
+const MAX_ALPHA = 0.55;
+
+const VoronoiGrid = L.GridLayer.extend({
+  createTile(coords, done) {
+    const tile = document.createElement('canvas');
+    const size = this.getTileSize();
+    tile.width = size.x;
+    tile.height = size.y;
+
+    // Offload to rAF so tile creation doesn't block panning
+    requestAnimationFrame(() => {
+      const ctx = tile.getContext('2d');
+      const active = STATIONS.filter(s => !disabledLines.has(s[3]));
+      if (active.length === 0) { done(null, tile); return; }
+
+      const imgData = ctx.createImageData(size.x, size.y);
+      const buf = imgData.data;
+      const z = coords.z;
+      const tileX = coords.x * size.x;
+      const tileY = coords.y * size.y;
+
+      for (let py = 0; py < size.y; py += CELL) {
+        // Convert this row's y to lat once
+        const gY = tileY + py;
+        const lat = this._yToLat(gY, z);
+        const cosLat = Math.cos(lat * Math.PI / 180);
+
+        for (let px = 0; px < size.x; px += CELL) {
+          const gX = tileX + px;
+          const lng = this._xToLng(gX, z);
+
+          // Nearest station (squared approx)
+          let minD = Infinity, nearest = null;
+          for (let i = 0; i < active.length; i++) {
+            const s = active[i];
+            const dlat = lat - s[1];
+            const dlng = (lng - s[2]) * cosLat;
+            const d = dlat*dlat + dlng*dlng;
+            if (d < minD) { minD = d; nearest = s; }
+          }
+          if (!nearest) continue;
+
+          const distM = haversine(lat, lng, nearest[1], nearest[2]);
+          let alpha;
+          if (distM <= FADE_START) alpha = MAX_ALPHA;
+          else if (distM >= FADE_END) continue;
+          else alpha = MAX_ALPHA * (1 - (distM - FADE_START) / (FADE_END - FADE_START));
+
+          const c = LINE_COLORS[nearest[3]].rgb;
+          const a = Math.round(alpha * 255);
+
+          const endY = Math.min(py + CELL, size.y);
+          const endX = Math.min(px + CELL, size.x);
+          for (let dy = py; dy < endY; dy++) {
+            for (let dx = px; dx < endX; dx++) {
+              const idx = (dy * size.x + dx) * 4;
+              buf[idx]   = c[0];
+              buf[idx+1] = c[1];
+              buf[idx+2] = c[2];
+              buf[idx+3] = a;
+            }
+          }
+        }
+      }
+
+      ctx.putImageData(imgData, 0, 0);
+      done(null, tile);
+    });
+
+    return tile;
+  },
+
+  _xToLng(x, z) {
+    return (x / Math.pow(2, z) / 256) * 360 - 180;
+  },
+
+  _yToLat(y, z) {
+    const n = Math.PI - 2 * Math.PI * y / (Math.pow(2, z) * 256);
+    return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  }
+});
+
+const voronoiLayer = new VoronoiGrid({
+  tileSize: 256,
+  opacity: 1,
+  updateWhenZooming: true,
+  updateWhenIdle: false,
+  keepBuffer: 4
+});
+voronoiLayer.addTo(map);
+
+// ── Station markers ──
+const stationMarkers = [];
+STATIONS.forEach(s => {
+  const color = LINE_COLORS[s[3]].hex;
+  const marker = L.circleMarker([s[1], s[2]], {
+    radius: 4, fillColor: color, color: '#fff',
+    weight: 1.5, opacity: 0.9, fillOpacity: 1, pane: 'markerPane'
+  }).addTo(map);
+  marker.stationData = { name: s[0], line: s[3], lines: s[4] };
+  stationMarkers.push(marker);
+
+  marker.on('mouseover', function(e) {
+    const tt = document.getElementById('tooltip');
+    tt.querySelector('.station-name').textContent = s[0];
+    tt.querySelector('.station-name').style.color = color;
+    tt.querySelector('.station-line').textContent = s[4].join(' · ');
+    tt.style.display = 'block';
+    tt.style.left = (e.containerPoint.x + 16) + 'px';
+    tt.style.top = (e.containerPoint.y - 10) + 'px';
+    this.setRadius(7);
+  });
+  marker.on('mouseout', function() {
+    document.getElementById('tooltip').style.display = 'none';
+    this.setRadius(4);
+  });
+});
+
+// ── Legend ──
+const legendEl = document.getElementById('legend');
+Object.entries(LINE_COLORS).forEach(([name, color]) => {
+  const row = document.createElement('div');
+  row.className = 'legend-row';
+  row.innerHTML = `<div class="legend-dot" style="background:${color.hex}"></div><span class="legend-label">${name}</span>`;
+  row.addEventListener('click', () => {
+    if (disabledLines.has(name)) {
+      disabledLines.delete(name);
+      row.classList.remove('disabled');
+    } else {
+      disabledLines.add(name);
+      row.classList.add('disabled');
+    }
+    stationMarkers.forEach(m => {
+      if (m.stationData.line === name) {
+        m.setStyle({
+          opacity: disabledLines.has(name) ? 0 : 0.9,
+          fillOpacity: disabledLines.has(name) ? 0 : 1
+        });
+      }
+    });
+    voronoiLayer.redraw();
+  });
+  legendEl.appendChild(row);
+});
+</script>
+</body>
+</html>
