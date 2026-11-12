@@ -29,8 +29,8 @@ const yawTo = (dx, dz) => Math.atan2(-dx, -dz);
 const rot = (vx, vz, d) => [vx * Math.cos(d) + vz * Math.sin(d), vz * Math.cos(d) - vx * Math.sin(d)];
 const angDiff = (a, b) => ((((b - a) % TAU) + TAU * 1.5) % TAU) - TAU / 2;
 
-function readBest() { try { return parseInt(localStorage.getItem('manul-parkour-best') || '0', 10) || 0; } catch { return 0; } }
-function saveBest(n) { try { localStorage.setItem('manul-parkour-best', String(n)); } catch { /* private window */ } }
+function readBest() { try { return parseInt(localStorage.getItem('manul-parkour-best-run') || '0', 10) || 0; } catch { return 0; } }
+function saveBest(n) { try { localStorage.setItem('manul-parkour-best-run', String(n)); } catch { /* private window */ } }
 function readMusic() { try { return localStorage.getItem('manul-parkour-music') !== 'off'; } catch { return true; } }
 function saveMusic(on) { try { localStorage.setItem('manul-parkour-music', on ? 'on' : 'off'); } catch { /* private window */ } }
 
@@ -66,7 +66,7 @@ export class Game {
       air: null, cling: null, climb: null, dead: null, failing: false, noCling: 0,
       chargeT0: null, charge: 0, landT: null, landBig: false, respawnT: null,
     };
-    this.cp = 0; this.maxBlock = 0; this.jumps = 0; this.aura = 0; this.streak = 0; this.ls = 0;
+    this.cp = 0; this.maxBlock = 0; this.jumps = 0; this.aura = 0; this.streak = 0; this.ls = 0; this.totalJumps = 0;
     this.party = false; this.partyV = 0; this.partyStart = null;
     this.land = null; this.newBestAt = null; this.bestAtStart = this.best; this.big = null;
     this.fxs = { dust: null, burst: null, rings: [], puff: null };
@@ -289,10 +289,12 @@ export class Game {
       // into its side
       if (p.y < top[1] - 0.01 && p.y + BODY_H > top[1] - b.hgt && Math.abs(dx) < hs + R_BODY && Math.abs(dz) < hs + R_BODY) {
         const depth = top[1] - p.y;
-        if (depth < 0.22 && p.vy <= 2) return this.landOn(i, top);   // just clipped the edge: up it goes
         const penX = hs + R_BODY - Math.abs(dx), penZ = hs + R_BODY - Math.abs(dz);
         const nx = penX < penZ ? Math.sign(dx) || 1 : 0, nz = penX < penZ ? 0 : Math.sign(dz) || 1;
-        if (depth < 0.9 && p.vy < 3 && t > p.noCling) return this.grab(i, nx, nz, nx ? dz : dx);
+        // only a block it's heading into catches it; one it's stepping off just lets it go
+        const into = -(p.vx * nx + p.vz * nz) > 0.1;
+        if (into && depth < 0.22 && p.vy <= 2) return this.landOn(i, top);   // just clipped the edge: up it goes
+        if (into && depth < 0.9 && p.vy < 3 && t > p.noCling) return this.grab(i, nx, nz, nx ? dz : dx);
         if (nx) { p.x += nx * penX; if (p.vx * nx < 0) p.vx = 0; } else { p.z += nz * penZ; if (p.vz * nz < 0) p.vz = 0; }
       }
     }
@@ -319,9 +321,9 @@ export class Game {
     const gain = i > this.maxBlock;
     this.land = { t, i, gain, gold };
     if (gain) {
-      this.jumps++; this.aura += gold ? 10 : 1; this.maxBlock = i; this.streak++;
-      if (this.maxBlock > this.best) {
-        this.best = this.maxBlock; saveBest(this.best);
+      this.jumps++; this.totalJumps++; this.aura += gold ? 10 : 1; this.maxBlock = i; this.streak++;
+      if (this.jumps > this.best) {
+        this.best = this.jumps; saveBest(this.best);
         if (this.bestAtStart > 0 && this.newBestAt == null) { this.newBestAt = t; this.snd.play('best'); }
       }
       if (gold) this.snd.play('sparkle');
@@ -379,7 +381,9 @@ export class Game {
 
   die() {
     const p = this.p, t = this.t;
-    p.dead = { t0: t, line: FAILS[this.ls % FAILS.length] };
+    p.dead = { t0: t, line: FAILS[this.ls % FAILS.length], jumps: this.jumps, aura: this.aura, newBest: this.bestAtStart > 0 && this.jumps > this.bestAtStart };
+    // a fall ends the run: the counters go back to zero and count again from the block it respawns on
+    this.jumps = 0; this.aura = 0; this.maxBlock = this.cp; this.bestAtStart = this.best; this.newBestAt = null;
     this.ls++; this.streak = 0; this.snd.play('fall'); this.snd.tapeStop();
     p.chargeT0 = null; p.charge = 0; this.snd.chargeStop();
     if (this.party) { this.party = false; this.snd.want = 'day'; }
@@ -439,7 +443,7 @@ export class Game {
     }
     const pullT = Math.max(smooth(p.charge), p.air && p.air.big ? 1 : 0);
     C.pull += (pullT - C.pull) * (1 - Math.exp(-dt * 4));
-    if (this.mode === 'play' && t > this.hintUntil - 1 && this.jumps < 2) this.hintUntil = t + 1;
+    if (this.mode === 'play' && t > this.hintUntil - 1 && this.totalJumps < 2) this.hintUntil = t + 1;
   }
 
   view() {

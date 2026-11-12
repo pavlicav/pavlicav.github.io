@@ -122,6 +122,10 @@ export class Hud {
       text(g, 'L', lx + sx, ly + sy, { fam: 'Bungee', w: 400, px: 190, fill: '#ff2a3d', stroke: '#fff', lw: 14, shadow: 8, sc, rot: -0.1 });
       emo(g, '💀', lx + 85 + sx, ly - 67 + sy, 60 * pop(t, t0 + 0.1), { rot: 0.2 });
       text(g, s.dead.line, lx + 10, ly + 101, { fam: PS, w: 400, px: 15, fill: '#fff', stroke: INK, lw: 5, shadow: 2, a: range(t, t0 + 0.15, t0 + 0.25) });
+      // the run that just ended
+      const runA = range(t, t0 + 0.3, t0 + 0.4);
+      text(g, `${s.dead.jumps} JUMPS  ${s.dead.aura} AURA`, lx + 10, ly + 128, { fam: PS, w: 400, px: 11, fill: '#ffe14d', stroke: INK, lw: 5, shadow: 2, a: runA });
+      if (s.dead.newBest) text(g, 'NEW BEST!', lx + 10, ly + 150, { fam: PS, w: 400, px: 11, fill: '#8ff6ff', stroke: INK, lw: 5, shadow: 2, a: runA, sc: pop(t, t0 + 0.3, 0.2) });
     }
     if (s.respawnT != null && t - s.respawnT < 0.45 && Math.floor((t - s.respawnT) * 12) % 2 === 0)
       text(g, 'RESPAWN', clamp(hx, 110, VW - 110), hy - 40, { fam: PS, w: 400, px: 16, fill: '#8ff6ff', stroke: INK, lw: 6, shadow: 2 });
