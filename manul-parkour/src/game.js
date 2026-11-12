@@ -29,8 +29,8 @@ const yawTo = (dx, dz) => Math.atan2(-dx, -dz);
 const rot = (vx, vz, d) => [vx * Math.cos(d) + vz * Math.sin(d), vz * Math.cos(d) - vx * Math.sin(d)];
 const angDiff = (a, b) => ((((b - a) % TAU) + TAU * 1.5) % TAU) - TAU / 2;
 
-function readBest() { try { return parseInt(localStorage.getItem('manul-parkour-best') || '0', 10) || 0; } catch { return 0; } }
-function saveBest(n) { try { localStorage.setItem('manul-parkour-best', String(n)); } catch { /* private window */ } }
+function readBest() { try { return parseInt(localStorage.getItem('manul-parkour-best-run') || '0', 10) || 0; } catch { return 0; } }
+function saveBest(n) { try { localStorage.setItem('manul-parkour-best-run', String(n)); } catch { /* private window */ } }
 function readMusic() { try { return localStorage.getItem('manul-parkour-music') !== 'off'; } catch { return true; } }
 function saveMusic(on) { try { localStorage.setItem('manul-parkour-music', on ? 'on' : 'off'); } catch { /* private window */ } }
 
@@ -40,6 +40,7 @@ export class Game {
     this.hud = new Hud(hud);
     this.snd = new Sound();
     this.snd.musicOn = readMusic();
+    this.snd.armUnlock();
     document.getElementById('music')?.classList.toggle('off', !this.snd.musicOn);
     this.hudCanvas = hud;
     this.best = readBest();
@@ -66,7 +67,7 @@ export class Game {
       air: null, cling: null, climb: null, dead: null, failing: false, noCling: 0,
       chargeT0: null, charge: 0, landT: null, landBig: false, respawnT: null,
     };
-    this.cp = 0; this.maxBlock = 0; this.jumps = 0; this.aura = 0; this.streak = 0; this.ls = 0;
+    this.cp = 0; this.maxBlock = 0; this.jumps = 0; this.aura = 0; this.streak = 0; this.ls = 0; this.totalJumps = 0;
     this.party = false; this.partyV = 0; this.partyStart = null;
     this.land = null; this.newBestAt = null; this.bestAtStart = this.best; this.big = null;
     this.fxs = { dust: null, burst: null, rings: [], puff: null };
@@ -108,12 +109,22 @@ export class Game {
       const touch = e.pointerType !== 'mouse';
       this.touch = touch;
       if (this.mode !== 'play') { this.press(); return; }
-      if (touch && e.clientX < this.W * 0.45) this.joy = { id: e.pointerId, ox: e.clientX, oy: e.clientY, dx: 0, dy: 0 };
-      else { if (touch) this.jumpTouch = e.pointerId; else this.mouseJump = true; this.press(); }
+      if (!touch) { this.mouseJump = true; this.press(); return; }
+      // touch: only the jump button jumps; a drag anywhere else steers (either thumb, in the air too)
+      const P = this.pad();
+      if (this.jumpTouch == null && Math.hypot(e.clientX - P.x, e.clientY - P.y) < P.r * 1.3) { this.jumpTouch = e.pointerId; this.press(); }
+      else { if (this.p.cling) this.taps++; if (!this.joy) this.joy = { id: e.pointerId, ox: e.clientX, oy: e.clientY, dx: 0, dy: 0 }; }
     });
     el.addEventListener('pointermove', (e) => {
       const J = this.joy;
       if (J && e.pointerId === J.id) { J.dx = clamp((e.clientX - J.ox) / 55, -1, 1); J.dy = clamp((e.clientY - J.oy) / 55, -1, 1); }
+      // sliding off the jump button cancels the jump
+      if (e.pointerId === this.jumpTouch && !this.jumpLock) {
+        const P = this.pad();
+        if (Math.hypot(e.clientX - P.x, e.clientY - P.y) > P.r * 2) {
+          const p = this.p; p.chargeT0 = null; p.charge = 0; this.snd.chargeStop(); this.jumpLock = true;
+        }
+      }
     });
     const up = (e) => {
       if (this.joy && e.pointerId === this.joy.id) { this.joy = null; return; }
@@ -122,10 +133,17 @@ export class Game {
       this.jumpLock = false;
     };
     el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
-    document.getElementById('mute')?.addEventListener('click', (e) => { e.stopPropagation(); this.toggleMute(); });
+    // while the browser is still holding the sound back, the button only lets it out (the tap itself unlocks it)
+    // (decided at finger-down: by the click, the tap has already let the sound out and the pulse has stopped)
+    const mute = document.getElementById('mute');
+    mute?.addEventListener('pointerdown', () => { this.muteUnblocks = this.soundBlocked; });
+    mute?.addEventListener('click', (e) => { e.stopPropagation(); if (this.muteUnblocks || this.soundBlocked) { this.muteUnblocks = false; this.snd.start(); } else this.toggleMute(); });
     document.getElementById('music')?.addEventListener('click', (e) => { e.stopPropagation(); this.snd.start(); this.toggleMusic(); });
     document.getElementById('pause')?.addEventListener('click', (e) => { e.stopPropagation(); this.togglePause(); });
   }
+
+  /** the touch jump button, bottom centre, in CSS pixels */
+  pad() { return { x: this.W / 2, y: this.H - (this.hud.safeB || 0) - 118, r: 46 }; }
 
   /** a jump press (key down or tap). true = it was used up starting or resuming */
   press() {
@@ -142,8 +160,8 @@ export class Game {
   togglePause(on = this.mode !== 'paused') {
     if (this.mode === 'title') return;
     this.mode = on ? 'paused' : 'play';
-    if (on) { this.snd.chargeStop(); this.p.chargeT0 = null; this.p.charge = 0; this.snd.ctx?.suspend(); }
-    else { this.snd.ctx?.resume(); }
+    if (on) { this.snd.chargeStop(); this.p.chargeT0 = null; this.p.charge = 0; }
+    this.snd.hold(on);
     document.getElementById('pause')?.classList.toggle('on', on);
   }
   toggleMute() { this.snd.setMuted(!this.snd.muted); document.getElementById('mute')?.classList.toggle('off', this.snd.muted); }
@@ -154,8 +172,9 @@ export class Game {
     let turn = (K.has('ArrowLeft') || K.has('KeyA') ? 1 : 0) - (K.has('ArrowRight') || K.has('KeyD') ? 1 : 0);
     let fwd = (K.has('ArrowUp') || K.has('KeyW') ? 1 : 0) - (K.has('ArrowDown') || K.has('KeyS') ? 1 : 0);
     if (J) {
-      const dz = (v) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
-      turn -= dz(J.dx); fwd -= dz(J.dy);
+      // small sideways drags turn; walking needs a clear drag up or down
+      const dz = (v, d) => (Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d));
+      turn -= dz(J.dx, 0.12); fwd -= dz(J.dy, 0.35);
     }
     const held = K.has('Space') || K.has('KeyJ') || K.has('KeyZ') || this.jumpTouch != null || this.mouseJump;
     return { turn: clamp(turn, -1, 1), fwd: clamp(fwd, -1, 1), held: held && !this.jumpLock };
@@ -289,10 +308,12 @@ export class Game {
       // into its side
       if (p.y < top[1] - 0.01 && p.y + BODY_H > top[1] - b.hgt && Math.abs(dx) < hs + R_BODY && Math.abs(dz) < hs + R_BODY) {
         const depth = top[1] - p.y;
-        if (depth < 0.22 && p.vy <= 2) return this.landOn(i, top);   // just clipped the edge: up it goes
         const penX = hs + R_BODY - Math.abs(dx), penZ = hs + R_BODY - Math.abs(dz);
         const nx = penX < penZ ? Math.sign(dx) || 1 : 0, nz = penX < penZ ? 0 : Math.sign(dz) || 1;
-        if (depth < 0.9 && p.vy < 3 && t > p.noCling) return this.grab(i, nx, nz, nx ? dz : dx);
+        // only a block it's heading into catches it; one it's stepping off just lets it go
+        const into = -(p.vx * nx + p.vz * nz) > 0.1;
+        if (into && depth < 0.22 && p.vy <= 2) return this.landOn(i, top);   // just clipped the edge: up it goes
+        if (into && depth < 0.9 && p.vy < 3 && t > p.noCling) return this.grab(i, nx, nz, nx ? dz : dx);
         if (nx) { p.x += nx * penX; if (p.vx * nx < 0) p.vx = 0; } else { p.z += nz * penZ; if (p.vz * nz < 0) p.vz = 0; }
       }
     }
@@ -319,9 +340,9 @@ export class Game {
     const gain = i > this.maxBlock;
     this.land = { t, i, gain, gold };
     if (gain) {
-      this.jumps++; this.aura += gold ? 10 : 1; this.maxBlock = i; this.streak++;
-      if (this.maxBlock > this.best) {
-        this.best = this.maxBlock; saveBest(this.best);
+      this.jumps++; this.totalJumps++; this.aura += gold ? 10 : 1; this.maxBlock = i; this.streak++;
+      if (this.jumps > this.best) {
+        this.best = this.jumps; saveBest(this.best);
         if (this.bestAtStart > 0 && this.newBestAt == null) { this.newBestAt = t; this.snd.play('best'); }
       }
       if (gold) this.snd.play('sparkle');
@@ -379,7 +400,9 @@ export class Game {
 
   die() {
     const p = this.p, t = this.t;
-    p.dead = { t0: t, line: FAILS[this.ls % FAILS.length] };
+    p.dead = { t0: t, line: FAILS[this.ls % FAILS.length], jumps: this.jumps, aura: this.aura, newBest: this.bestAtStart > 0 && this.jumps > this.bestAtStart };
+    // a fall ends the run: the counters go back to zero and count again from the block it respawns on
+    this.jumps = 0; this.aura = 0; this.maxBlock = this.cp; this.bestAtStart = this.best; this.newBestAt = null;
     this.ls++; this.streak = 0; this.snd.play('fall'); this.snd.tapeStop();
     p.chargeT0 = null; p.charge = 0; this.snd.chargeStop();
     if (this.party) { this.party = false; this.snd.want = 'day'; }
@@ -439,7 +462,7 @@ export class Game {
     }
     const pullT = Math.max(smooth(p.charge), p.air && p.air.big ? 1 : 0);
     C.pull += (pullT - C.pull) * (1 - Math.exp(-dt * 4));
-    if (this.mode === 'play' && t > this.hintUntil - 1 && this.jumps < 2) this.hintUntil = t + 1;
+    if (this.mode === 'play' && t > this.hintUntil - 1 && this.totalJumps < 2) this.hintUntil = t + 1;
   }
 
   view() {
@@ -496,6 +519,9 @@ export class Game {
 
   draw(dt) {
     const p = this.p, t = this.t, B = this.course.blocks;
+    // the browser hasn't let the sound start yet: make the sound button pulse so there's something to tap
+    const blocked = this.mode === 'play' && !this.snd.muted && !this.snd.held && (!this.snd.ctx || this.snd.ctx.state !== 'running');
+    if (blocked !== this.soundBlocked) { this.soundBlocked = blocked; document.getElementById('mute')?.classList.toggle('blocked', blocked); }
     this.world.syncBlocks(B, this.cp - 4, this.cp + 18);
     const beat = this.snd.beat(), bt = beat >= 0 ? beat : t * (140 / 60);
     const bp = this.partyV * Math.exp(-(bt - Math.floor(bt)) * 5);
@@ -528,7 +554,7 @@ export class Game {
       dead: p.dead, respawnT: p.respawnT, charge: p.charge, bigAt: BIG, big: this.big,
       cling: p.cling && { taps: this.taps, need: MASH, u: clamp((t - p.cling.t0) / CLING_T) },
       hint: this.mode === 'play' ? clamp(this.hintUntil - t) * clamp((t - (this.startT ?? 0) - 0.8) * 2) : 0,
-      touch: this.touch, joy: this.joy, jumpHeld: this.jumpTouch != null,
+      touch: this.touch, joy: this.joy, jumpHeld: this.jumpTouch != null, jumpCancel: this.jumpTouch != null && this.jumpLock, pad: this.pad(),
     });
   }
 }
