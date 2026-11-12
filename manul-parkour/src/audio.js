@@ -34,9 +34,10 @@ export class Sound {
 
   /** must be called from a tap or key press (a test can pass its own OfflineAudioContext) */
   start(ctxIn) {
-    if (this.ctx) { if (this.ctx.state === 'suspended' && !ctxIn) this.ctx.resume(); return; }
+    if (this.ctx) { if (this.ctx.state !== 'running' && !ctxIn && !this.held) this.ctx.resume().catch(() => {}); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC && !ctxIn) return;
+    try { if (navigator.audioSession && !ctxIn) navigator.audioSession.type = 'playback'; } catch { /* older browsers */ }
     const ctx = this.ctx = ctxIn || new AC();
     const master = this.master = ctx.createGain(); master.gain.value = this.muted ? 0 : 0.9;
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -10; comp.ratio.value = 6; comp.attack.value = 0.002; comp.release.value = 0.1;
@@ -48,6 +49,28 @@ export class Sound {
     this.instruments();
     this.barT = this.gridT = ctx.currentTime + 0.1; this.bar = 0;
   }
+
+  /**
+   * Browsers only let sound start inside a real user action, and for touch that's the finger lifting
+   * (touchend / pointerup), not touching down; Firefox is strict about it. So listen for every kind of
+   * action, from the first one on, and each time the sound isn't running, start or resume it there.
+   */
+  armUnlock() {
+    if (this.unlockArmed) return;
+    this.unlockArmed = true;
+    const go = () => {
+      if (this.held) return;   // paused on purpose
+      this.start();
+      const c = this.ctx;
+      if (!c || c.state === 'running') return;
+      c.resume().catch(() => {});
+      // WebKit also wants a sound actually started inside the action
+      try { const s = c.createBufferSource(); s.buffer = c.createBuffer(1, 1, c.sampleRate); s.connect(c.destination); s.start(); } catch { /* not allowed yet */ }
+    };
+    for (const e of ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'click', 'keydown']) addEventListener(e, go, { capture: true, passive: true });
+  }
+  /** pause: hold the sound still until let go */
+  hold(on) { this.held = on; if (!this.ctx) return; (on ? this.ctx.suspend() : this.ctx.resume()).catch(() => {}); }
 
   musicLevel() { return this.musicOn && !this.stopped ? MUSIC : 0; }
   fadeMusic(tc = 0.08) { if (this.music) this.music.gain.setTargetAtTime(this.musicLevel(), this.ctx.currentTime, tc); }

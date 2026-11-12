@@ -57,7 +57,7 @@ export class Hud {
     // the ad's 585 x 520 game half, fitted to the window; on a phone, sized to its width instead
     this.k = Math.max(Math.min(w / 585, h / 520) * 0.92, Math.min(w / 430, 1));
     const cs = getComputedStyle(document.documentElement);
-    this.safeT = parseFloat(cs.paddingTop) || 0; const safeB = parseFloat(cs.paddingBottom) || 0;
+    this.safeT = parseFloat(cs.paddingTop) || 0; const safeB = this.safeB = parseFloat(cs.paddingBottom) || 0;
     this.dpr = dpr; this.VW = w / this.k; this.VH = (h - this.safeT - safeB) / this.k; this.w = w; this.h = h;
   }
 
@@ -164,16 +164,17 @@ export class Hud {
     // the short-video caption, bottom left
     const cy = VH - 46;
     text(g, '@vizzle.vision', 20, cy, { fam: 'Inter', w: 800, px: 19, align: 'left', fill: '#fff', stroke: null, shadow: 2, shadowCol: 'rgba(0,0,0,0.35)' });
-    text(g, 'facts only no cap 🧠 part 2  #manul #parkour', 20, cy + 24, { fam: 'Inter', w: 600, px: 14, align: 'left', fill: '#fff', stroke: null, shadow: 1.5, shadowCol: 'rgba(0,0,0,0.35)', maxW: VW - 140 });
+    text(g, 'facts only no cap 🧠 part 2  #manul #parkour', 20, cy + 24, { fam: 'Inter', w: 600, px: 14, align: 'left', fill: '#fff', stroke: null, shadow: 1.5, shadowCol: 'rgba(0,0,0,0.35)', maxW: VW - 30 - 165 / this.k });
 
     // the first few seconds: how to play
     if (s.hint > 0.01) {
-      const msg = s.touch ? 'left thumb: steer + walk  ·  right thumb: hold to charge, let go to jump' : '← → turn   ↑ ↓ walk   hold SPACE to charge, let go to jump';
+      const msg = s.touch ? 'drag to steer  ·  hold JUMP, let go to jump' : '← → turn   ↑ ↓ walk   hold SPACE to charge, let go to jump';
+      const hy2 = s.touch && s.pad ? (s.pad.y - s.pad.r - this.safeT) / this.k - 26 : VH - 97;
       g.save(); g.globalAlpha = s.hint;
       g.font = F(700, 13, 'Inter'); const w = Math.min(VW - 40, g.measureText(msg).width + 28);
-      g.fillStyle = 'rgba(22,18,28,0.72)'; g.beginPath(); g.roundRect(VW / 2 - w / 2, VH - 112, w, 30, 15); g.fill();
+      g.fillStyle = 'rgba(22,18,28,0.72)'; g.beginPath(); g.roundRect(VW / 2 - w / 2, hy2 - 15, w, 30, 15); g.fill();
       g.restore();
-      text(g, msg, VW / 2, VH - 97, { fam: 'Inter', w: 700, px: 13, fill: '#fff', stroke: null, shadow: false, a: s.hint, maxW: VW - 64 });
+      text(g, msg, VW / 2, hy2, { fam: 'Inter', w: 700, px: 13, fill: '#fff', stroke: null, shadow: false, a: s.hint, maxW: VW - 64 });
     }
 
     if (s.touch) this.sticks(g, s);
@@ -188,13 +189,16 @@ export class Hud {
       g.fillStyle = '#fff'; g.beginPath(); g.arc(J.ox / k + J.dx * 40, (J.oy - this.safeT) / k + J.dy * 40, 22, 0, TAU); g.fill();
       g.restore();
     }
-    // the jump pad, bottom right
-    const x = this.VW - 74, y = this.VH - 150, c = s.charge;
+    // the jump button, bottom centre (red with an X while a slide-off has cancelled it)
+    const P = s.pad, x = P.x / k, y = (P.y - this.safeT) / k, r = P.r / k, c = s.charge;
     g.save(); g.globalAlpha = s.jumpHeld ? 0.85 : 0.5;
-    g.fillStyle = INK; g.beginPath(); g.arc(x, y, 46, 0, TAU); g.fill();
-    if (c > 0) { g.fillStyle = '#ffd34d'; g.beginPath(); g.moveTo(x, y); g.arc(x, y, 42, -Math.PI / 2, -Math.PI / 2 + TAU * c); g.closePath(); g.fill(); }
+    g.fillStyle = s.jumpCancel ? '#ff2a3d' : INK; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+    if (c > 0) { g.fillStyle = '#ffd34d'; g.beginPath(); g.moveTo(x, y); g.arc(x, y, r - 4, -Math.PI / 2, -Math.PI / 2 + TAU * c); g.closePath(); g.fill(); }
     g.restore();
-    text(g, 'JUMP', x, y + 1, { fam: PS, w: 400, px: 11, fill: '#fff', stroke: INK, lw: 4, shadow: false });
+    if (s.jumpCancel) {
+      g.save(); g.strokeStyle = '#fff'; g.lineWidth = 6; g.lineCap = 'round'; const d = r * 0.32;
+      g.beginPath(); g.moveTo(x - d, y - d); g.lineTo(x + d, y + d); g.moveTo(x + d, y - d); g.lineTo(x - d, y + d); g.stroke(); g.restore();
+    } else text(g, 'JUMP', x, y + 1, { fam: PS, w: 400, px: 11, fill: '#fff', stroke: INK, lw: 4, shadow: false });
   }
 
   title(g, s) {
@@ -208,7 +212,7 @@ export class Hud {
     text(g, 'legs: short.  aura: infinite.', VW / 2, VH * 0.17 + 122, { fam: PS, w: 400, px: 11, fill: '#fff', stroke: INK, lw: 5, shadow: 2, a: range(t, 0.5, 0.8), maxW: VW - 30 });
     if (s.best > 0) text(g, `BEST ${s.best}`, VW / 2, VH * 0.17 + 146, { fam: PS, w: 400, px: 10, fill: '#8ff6ff', stroke: INK, lw: 5, shadow: 2, a: range(t, 0.5, 0.8) });
     const lines = s.touch
-      ? ['left thumb: steer + walk', 'right thumb: hold to charge, let go to jump', 'come up short? tap tap tap to climb']
+      ? ['drag anywhere: steer (drag up to walk)', 'hold JUMP to charge, let go to jump', 'slide off JUMP to cancel', 'hanging on? tap tap tap to climb']
       : ['← →  turn       ↑ ↓  walk', 'hold SPACE to charge, let go to jump', 'come up short? mash SPACE to climb', 'M  music on/off      P  pause'];
     const y0 = VH - 92 - lines.length * 20;
     g.save(); g.globalAlpha = range(t, 0.7, 1);
