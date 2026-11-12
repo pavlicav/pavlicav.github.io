@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Manul Parkour</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@800;900&family=Inter:wght@600;700;800&family=Bungee&family=Press+Start+2P&display=block" rel="stylesheet">
+<style>
+  /* one look in every theme: the ad's pastel sky */
+  :root { --ink: #16121c; --gold: #ffe14d; --sky: #ffc2e0; --sky-top: #6fa4ff; --sky-low: #ffe6d6; --chip: rgba(255,255,255,0.85); --text: #ffffff; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--sky); touch-action: none; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; }
+  #gl { background: linear-gradient(var(--sky-top), var(--sky) 55%, var(--sky-low)); }
+  #hud { z-index: 1; cursor: pointer; }
+  .btns { position: fixed; z-index: 2; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); display: flex; gap: 8px; }
+  .btns button { width: 40px; height: 40px; border-radius: 999px; border: 3px solid var(--ink); background: var(--chip);
+    font: 16px/1 "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Emoji", sans-serif; cursor: pointer; padding: 0; position: relative; }
+  .btns button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  #mute::before { content: "🔊"; } #mute.off::before { content: "🔇"; }
+  #music::before { content: "🎵"; } #music.off { opacity: 0.6; }
+  #music.off::after { content: ""; position: absolute; left: 6px; right: 6px; top: calc(50% - 1.5px); height: 3px; border-radius: 2px; background: var(--ink); transform: rotate(-45deg); }
+  #pause::before { content: "⏸"; } #pause.on::before { content: "▶"; }
+  #msg { position: fixed; inset: 0; z-index: 3; display: grid; place-items: center; padding: 16px; text-align: center;
+    font: 400 14px/1.8 "Press Start 2P", monospace; color: var(--text); text-shadow: 3px 3px 0 var(--ink); background: linear-gradient(var(--sky-top), var(--sky) 55%, var(--sky-low)); }
+  #msg.gone { display: none; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="hud"></canvas>
+<div class="btns"><button id="pause" aria-label="Pause"></button><button id="music" aria-label="Music on or off"></button><button id="mute" aria-label="All sound on or off"></button></div>
+<div id="msg">loading the manul…</div>
+<script type="module">
+  const msg = document.getElementById('msg');
+  const fail = (e) => { msg.classList.remove('gone'); msg.textContent = 'the manul could not load: ' + (e && e.message || e); console.error(e); };
+  addEventListener('error', (e) => fail(e.error || e.message));
+  try {
+    // the HUD's fonts, then the game (fonts give up after 2.5 s rather than hold the game back)
+    await Promise.race([
+      Promise.all(['400 16px Bungee', '400 12px "Press Start 2P"', '700 14px Inter', '800 14px Inter'].map((f) => document.fonts.load(f))),
+      new Promise((r) => setTimeout(r, 2500)),
+    ]);
+    const { Game } = await import('./src/game.js');
+    window.game = new Game({ gl: document.getElementById('gl'), hud: document.getElementById('hud') });
+    msg.classList.add('gone');
+  } catch (e) { fail(e); }
+</script>
+</body>
+</html>
